@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Feed.fm API Tester</title>
+<title>Feed.fm API v2 Tester</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -22,7 +22,8 @@
     padding: 16px;
     margin-bottom: 16px;
   }
-  .card h2 { font-size: 15px; margin: 0 0 12px; color: #6cb4ff; }
+  .card h2 { font-size: 15px; margin: 0 0 2px; color: #6cb4ff; }
+  .card .endpoint { font-size: 11px; color: #666; font-family: monospace; margin-bottom: 12px; }
   label { display: block; font-size: 12px; color: #aaa; margin: 10px 0 4px; }
   input {
     width: 100%;
@@ -48,11 +49,8 @@
   }
   button:active { background: #2563a8; }
   button:disabled { background: #444; }
-  .status {
-    margin-top: 10px;
-    font-size: 13px;
-    font-weight: 600;
-  }
+  button.secondary { background: #2a2e33; margin-top: 8px; }
+  .status { margin-top: 10px; font-size: 13px; font-weight: 600; }
   .status.ok { color: #4fd18b; }
   .status.err { color: #ff6b6b; }
   pre {
@@ -88,17 +86,35 @@
   }
   .ip-check { font-size: 12px; color: #888; margin-bottom: 16px; }
   .ip-check span { color: #e6e6e6; }
+  .picks { margin-top: 8px; }
+  .picks button {
+    display: block;
+    text-align: left;
+    background: #1c2126;
+    border: 1px solid #2a2e33;
+    margin-top: 6px;
+    font-size: 12px;
+    font-weight: 400;
+    padding: 8px 10px;
+  }
 </style>
 </head>
 <body>
 
-<h1>Feed.fm API Tester</h1>
-<div class="sub">Runs straight from this device's network — connect your VPN before testing.</div>
+<h1>Feed.fm API v2 Tester</h1>
+<div class="sub">Connect your VPN before testing — requests go straight from this device.</div>
 
 <div class="ip-check">Your outbound IP/country: <span id="ipInfo">checking…</span></div>
 
 <div class="card">
+  <h2>Client ID</h2>
+  <div class="endpoint">required as clientId= on every request below — opaque, no PII, min 8 chars</div>
+  <input type="text" id="clientId">
+</div>
+
+<div class="card">
   <h2>1. Authenticate</h2>
+  <div class="endpoint">POST /v2/authenticate</div>
   <label>Client Token</label>
   <input type="password" id="clientToken" autocomplete="off" placeholder="FEEDFM_TOKEN">
   <span class="toggle" onclick="toggleMask('clientToken', this)">show</span>
@@ -116,29 +132,54 @@
 </div>
 
 <div class="card">
-  <h2>2. Fetch Collections</h2>
+  <h2>2. List Collections</h2>
+  <div class="endpoint">GET /v2/collections</div>
   <label>Bearer Token</label>
-  <input type="password" id="bearerToken" autocomplete="off" placeholder="auto-filled after step 1, or paste your own">
+  <input type="password" id="bearerToken" autocomplete="off" placeholder="auto-filled after step 1">
   <span class="toggle" onclick="toggleMask('bearerToken', this)">show</span>
 
-  <label>Client ID (auto-decoded from token's "appId" claim)</label>
-  <input type="text" id="clientId" placeholder="e.g. 95">
+  <button onclick="listCollections()">List Collections</button>
+  <div id="collectionsStatus" class="status"></div>
+  <div id="collectionsShape" class="shape" style="display:none"></div>
+  <div id="collectionsPicks" class="picks"></div>
+  <pre id="collectionsOutput" style="display:none"></pre>
+</div>
 
-  <div class="row">
-    <div>
-      <label>Page</label>
-      <input type="number" id="pageNum" value="1">
-    </div>
-    <div>
-      <label>Per Page</label>
-      <input type="number" id="pageSize" value="20">
-    </div>
-  </div>
+<div class="card">
+  <h2>3. Browse a Collection's Clips</h2>
+  <div class="endpoint">GET /v2/collections/{id}/clips</div>
+  <label>Collection ID</label>
+  <input type="text" id="collectionId" placeholder="pick one from step 2, or paste">
 
-  <button onclick="fetchCollections()">Fetch Collections</button>
-  <div id="collStatus" class="status"></div>
-  <div id="collShape" class="shape" style="display:none"></div>
-  <pre id="collOutput" style="display:none"></pre>
+  <button onclick="browseCollectionClips()">Browse Clips</button>
+  <div id="clipsListStatus" class="status"></div>
+  <div id="clipsListShape" class="shape" style="display:none"></div>
+  <div id="clipsListPicks" class="picks"></div>
+  <pre id="clipsListOutput" style="display:none"></pre>
+</div>
+
+<div class="card">
+  <h2>4. Fetch Clip (signed URL)</h2>
+  <div class="endpoint">GET /v2/clips/{id} — signed URL valid 24h</div>
+  <label>Clip ID</label>
+  <input type="text" id="clipId" placeholder="pick one from step 3, or paste">
+
+  <button onclick="fetchClip()">Fetch Clip</button>
+  <div id="clipStatus" class="status"></div>
+  <div id="clipShape" class="shape" style="display:none"></div>
+  <pre id="clipOutput" style="display:none"></pre>
+</div>
+
+<div class="card">
+  <h2>5. Fetch Full Track (optional)</h2>
+  <div class="endpoint">GET /v2/tracks/{id}</div>
+  <label>Track ID</label>
+  <input type="text" id="trackId" placeholder="from step 3's clip metadata, or paste">
+
+  <button onclick="fetchTrack()">Fetch Track</button>
+  <div id="trackStatus" class="status"></div>
+  <div id="trackShape" class="shape" style="display:none"></div>
+  <pre id="trackOutput" style="display:none"></pre>
 </div>
 
 <script>
@@ -155,17 +196,25 @@ fetch("https://ifconfig.co/json").then(r => r.json()).then(d => {
   document.getElementById("ipInfo").textContent = "unavailable";
 });
 
-// Decodes a JWT's payload segment (base64url) without verifying the signature —
-// just to read claims like appId that Feed.fm doesn't expose anywhere else.
+// clientId is opaque/non-PII, persisted per this device so repeated test runs
+// count as the same "user" (Feed.fm docs: inconsistent clientId breaks analytics/billing).
+(function initClientId() {
+  const el = document.getElementById("clientId");
+  let stored = localStorage.getItem("feedfmTesterClientId");
+  if (!stored) {
+    stored = "tester-" + crypto.randomUUID();
+    localStorage.setItem("feedfmTesterClientId", stored);
+  }
+  el.value = stored;
+  el.addEventListener("change", () => localStorage.setItem("feedfmTesterClientId", el.value.trim()));
+})();
+
 function decodeJwt(token) {
   try {
     const payload = token.split(".")[1];
     const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
     const json = decodeURIComponent(
-      atob(base64)
-        .split("")
-        .map((c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0"))
-        .join("")
+      atob(base64).split("").map((c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0")).join("")
     );
     return JSON.parse(json);
   } catch (e) {
@@ -178,88 +227,8 @@ function setStatus(el, ok, text) {
   el.textContent = text;
 }
 
-async function authenticate() {
-  const base = document.getElementById("baseUrl").value.trim();
-  const token = document.getElementById("clientToken").value.trim();
-  const secret = document.getElementById("clientSecret").value.trim();
-  const statusEl = document.getElementById("authStatus");
-  const outEl = document.getElementById("authOutput");
-
-  setStatus(statusEl, true, "Requesting…");
-  outEl.style.display = "none";
-
-  try {
-    const res = await fetch(`${base}/authenticate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, secret }),
-    });
-    const data = await res.json();
-    outEl.textContent = JSON.stringify(data, null, 2);
-    outEl.style.display = "block";
-
-    const bearer = data?.data?.token || data?.token;
-    if (res.ok && bearer) {
-      setStatus(statusEl, true, `${res.status} OK — token received`);
-      document.getElementById("bearerToken").value = bearer;
-      const claims = decodeJwt(bearer);
-      if (claims) {
-        outEl.textContent += "\n\n// decoded JWT payload:\n" + JSON.stringify(claims, null, 2);
-      }
-      if (claims?.appId != null) {
-        document.getElementById("clientId").value = claims.appId;
-      }
-    } else {
-      setStatus(statusEl, false, `${res.status} — no token in response`);
-    }
-  } catch (e) {
-    setStatus(statusEl, false, "Request failed: " + e.message + " (likely CORS or network block — check browser console)");
-  }
-}
-
-async function fetchCollections() {
-  const base = document.getElementById("baseUrl").value.trim();
-  const bearer = document.getElementById("bearerToken").value.trim();
-  const clientId = document.getElementById("clientId").value.trim();
-  const pageNum = document.getElementById("pageNum").value;
-  const pageSize = document.getElementById("pageSize").value;
-  const statusEl = document.getElementById("collStatus");
-  const outEl = document.getElementById("collOutput");
-  const shapeEl = document.getElementById("collShape");
-
-  setStatus(statusEl, true, "Requesting…");
-  outEl.style.display = "none";
-  shapeEl.style.display = "none";
-
-  try {
-    const res = await fetch(`${base}/collections`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${bearer}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        clientId: clientId ? Number(clientId) : undefined,
-        page: Number(pageNum),
-        per_page: Number(pageSize),
-      }),
-    });
-    const data = await res.json();
-    outEl.textContent = JSON.stringify(data, null, 2);
-    outEl.style.display = "block";
-    setStatus(statusEl, res.ok, `${res.status} ${res.ok ? "OK" : "— see response below"}`);
-
-    shapeEl.innerHTML = describeShape(data);
-    shapeEl.style.display = "block";
-  } catch (e) {
-    setStatus(statusEl, false, "Request failed: " + e.message + " (likely CORS or network block — check browser console)");
-  }
-}
-
-// Walks the response and prints "path: type" for every leaf + first array element,
-// so real Feed.fm field names are visible at a glance without reading nested JSON by hand.
 function describeShape(obj, path = "", depth = 0, lines = []) {
-  if (depth > 5) return lines.join("");
+  if (depth > 6) return lines.join("");
   if (Array.isArray(obj)) {
     lines.push(`<div><span class="path">${path}</span>: <span class="type">array[${obj.length}]</span></div>`);
     if (obj.length > 0) describeShape(obj[0], `${path}[0]`, depth + 1, lines);
@@ -275,6 +244,139 @@ function describeShape(obj, path = "", depth = 0, lines = []) {
     }
   }
   return lines.join("");
+}
+
+function clientIdParam() {
+  return `clientId=${encodeURIComponent(document.getElementById("clientId").value.trim())}`;
+}
+
+function bearer() {
+  return document.getElementById("bearerToken").value.trim();
+}
+
+function base() {
+  return document.getElementById("baseUrl").value.trim();
+}
+
+async function apiGet(path, params, statusEl, outEl, shapeEl) {
+  setStatus(statusEl, true, "Requesting…");
+  outEl.style.display = "none";
+  if (shapeEl) shapeEl.style.display = "none";
+
+  const query = [clientIdParam(), ...params].join("&");
+  try {
+    const res = await fetch(`${base()}${path}?${query}`, {
+      headers: { Authorization: `Bearer ${bearer()}` },
+    });
+    const data = await res.json();
+    outEl.textContent = JSON.stringify(data, null, 2);
+    outEl.style.display = "block";
+    setStatus(statusEl, res.ok, `${res.status} ${res.ok ? "OK" : "— see response below"}`);
+    if (shapeEl) {
+      shapeEl.innerHTML = describeShape(data);
+      shapeEl.style.display = "block";
+    }
+    return data;
+  } catch (e) {
+    setStatus(statusEl, false, "Request failed: " + e.message + " (likely CORS or network block — check browser console)");
+    return null;
+  }
+}
+
+async function authenticate() {
+  const token = document.getElementById("clientToken").value.trim();
+  const secret = document.getElementById("clientSecret").value.trim();
+  const statusEl = document.getElementById("authStatus");
+  const outEl = document.getElementById("authOutput");
+
+  setStatus(statusEl, true, "Requesting…");
+  outEl.style.display = "none";
+
+  try {
+    const res = await fetch(`${base()}/v2/authenticate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, secret }),
+    });
+    const data = await res.json();
+    outEl.textContent = JSON.stringify(data, null, 2);
+    outEl.style.display = "block";
+
+    const bearerToken = data?.data?.token || data?.token;
+    if (res.ok && bearerToken) {
+      setStatus(statusEl, true, `${res.status} OK — token received`);
+      document.getElementById("bearerToken").value = bearerToken;
+      const claims = decodeJwt(bearerToken);
+      if (claims) outEl.textContent += "\n\n// decoded JWT payload:\n" + JSON.stringify(claims, null, 2);
+    } else {
+      setStatus(statusEl, false, `${res.status} — no token in response`);
+    }
+  } catch (e) {
+    setStatus(statusEl, false, "Request failed: " + e.message + " (likely CORS or network block — check browser console)");
+  }
+}
+
+async function listCollections() {
+  const data = await apiGet(
+    "/v2/collections", [],
+    document.getElementById("collectionsStatus"),
+    document.getElementById("collectionsOutput"),
+    document.getElementById("collectionsShape")
+  );
+  const picksEl = document.getElementById("collectionsPicks");
+  picksEl.innerHTML = "";
+  const list = data?.collections || data?.data || (Array.isArray(data) ? data : []);
+  list.forEach((c) => {
+    const id = c.id ?? c.collectionId;
+    const btn = document.createElement("button");
+    btn.textContent = `Use: ${c.name || c.title || "(untitled)"} — id ${id}`;
+    btn.onclick = () => { document.getElementById("collectionId").value = id; };
+    picksEl.appendChild(btn);
+  });
+}
+
+async function browseCollectionClips() {
+  const id = document.getElementById("collectionId").value.trim();
+  const data = await apiGet(
+    `/v2/collections/${encodeURIComponent(id)}/clips`, [],
+    document.getElementById("clipsListStatus"),
+    document.getElementById("clipsListOutput"),
+    document.getElementById("clipsListShape")
+  );
+  const picksEl = document.getElementById("clipsListPicks");
+  picksEl.innerHTML = "";
+  const list = data?.clips || data?.data || (Array.isArray(data) ? data : []);
+  list.forEach((c) => {
+    const clipId = c.id ?? c.clipId;
+    const trackId = c.trackId ?? c.track?.id;
+    const btn = document.createElement("button");
+    btn.textContent = `Use: ${c.title || c.name || "(untitled)"} — clip ${clipId}${trackId ? `, track ${trackId}` : ""}`;
+    btn.onclick = () => {
+      document.getElementById("clipId").value = clipId;
+      if (trackId) document.getElementById("trackId").value = trackId;
+    };
+    picksEl.appendChild(btn);
+  });
+}
+
+async function fetchClip() {
+  const id = document.getElementById("clipId").value.trim();
+  await apiGet(
+    `/v2/clips/${encodeURIComponent(id)}`, [],
+    document.getElementById("clipStatus"),
+    document.getElementById("clipOutput"),
+    document.getElementById("clipShape")
+  );
+}
+
+async function fetchTrack() {
+  const id = document.getElementById("trackId").value.trim();
+  await apiGet(
+    `/v2/tracks/${encodeURIComponent(id)}`, [],
+    document.getElementById("trackStatus"),
+    document.getElementById("trackOutput"),
+    document.getElementById("trackShape")
+  );
 }
 </script>
 
