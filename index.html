@@ -50,6 +50,14 @@
   button:active { background: #2563a8; }
   button:disabled { background: #444; }
   button.secondary { background: #2a2e33; margin-top: 8px; }
+  button.copy {
+    width: auto;
+    display: inline-block;
+    margin-top: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    background: #2a2e33;
+  }
   .status { margin-top: 10px; font-size: 13px; font-weight: 600; }
   .status.ok { color: #4fd18b; }
   .status.err { color: #ff6b6b; }
@@ -129,6 +137,7 @@
   <button onclick="authenticate()">Authenticate</button>
   <div id="authStatus" class="status"></div>
   <pre id="authOutput" style="display:none"></pre>
+  <button class="copy" id="authOutputCopyBtn" style="display:none" onclick="copyOutput('authOutput', this)">Copy</button>
 </div>
 
 <div class="card">
@@ -143,6 +152,7 @@
   <div id="collectionsShape" class="shape" style="display:none"></div>
   <div id="collectionsPicks" class="picks"></div>
   <pre id="collectionsOutput" style="display:none"></pre>
+  <button class="copy" id="collectionsOutputCopyBtn" style="display:none" onclick="copyOutput('collectionsOutput', this)">Copy</button>
 </div>
 
 <div class="card">
@@ -156,6 +166,7 @@
   <div id="clipsListShape" class="shape" style="display:none"></div>
   <div id="clipsListPicks" class="picks"></div>
   <pre id="clipsListOutput" style="display:none"></pre>
+  <button class="copy" id="clipsListOutputCopyBtn" style="display:none" onclick="copyOutput('clipsListOutput', this)">Copy</button>
 </div>
 
 <div class="card">
@@ -168,6 +179,7 @@
   <div id="clipStatus" class="status"></div>
   <div id="clipShape" class="shape" style="display:none"></div>
   <pre id="clipOutput" style="display:none"></pre>
+  <button class="copy" id="clipOutputCopyBtn" style="display:none" onclick="copyOutput('clipOutput', this)">Copy</button>
 </div>
 
 <div class="card">
@@ -180,6 +192,7 @@
   <div id="trackStatus" class="status"></div>
   <div id="trackShape" class="shape" style="display:none"></div>
   <pre id="trackOutput" style="display:none"></pre>
+  <button class="copy" id="trackOutputCopyBtn" style="display:none" onclick="copyOutput('trackOutput', this)">Copy</button>
 </div>
 
 <script>
@@ -227,6 +240,15 @@ function setStatus(el, ok, text) {
   el.textContent = text;
 }
 
+function copyOutput(id, btn) {
+  const text = document.getElementById(id).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const original = btn.textContent;
+    btn.textContent = "Copied!";
+    setTimeout(() => { btn.textContent = original; }, 1200);
+  });
+}
+
 function describeShape(obj, path = "", depth = 0, lines = []) {
   if (depth > 6) return lines.join("");
   if (Array.isArray(obj)) {
@@ -261,6 +283,7 @@ function base() {
 async function apiGet(path, params, statusEl, outEl, shapeEl) {
   setStatus(statusEl, true, "Requesting…");
   outEl.style.display = "none";
+  document.getElementById(outEl.id + "CopyBtn").style.display = "none";
   if (shapeEl) shapeEl.style.display = "none";
 
   const query = [clientIdParam(), ...params].join("&");
@@ -271,6 +294,7 @@ async function apiGet(path, params, statusEl, outEl, shapeEl) {
     const data = await res.json();
     outEl.textContent = JSON.stringify(data, null, 2);
     outEl.style.display = "block";
+    document.getElementById(outEl.id + "CopyBtn").style.display = "inline-block";
     setStatus(statusEl, res.ok, `${res.status} ${res.ok ? "OK" : "— see response below"}`);
     if (shapeEl) {
       shapeEl.innerHTML = describeShape(data);
@@ -301,6 +325,7 @@ async function authenticate() {
     const data = await res.json();
     outEl.textContent = JSON.stringify(data, null, 2);
     outEl.style.display = "block";
+    document.getElementById("authOutputCopyBtn").style.display = "inline-block";
 
     const bearerToken = data?.data?.token || data?.token;
     if (res.ok && bearerToken) {
