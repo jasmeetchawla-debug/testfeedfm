@@ -121,6 +121,9 @@
   <input type="password" id="bearerToken" autocomplete="off" placeholder="auto-filled after step 1, or paste your own">
   <span class="toggle" onclick="toggleMask('bearerToken', this)">show</span>
 
+  <label>Client ID (auto-decoded from token's "appId" claim)</label>
+  <input type="text" id="clientId" placeholder="e.g. 95">
+
   <div class="row">
     <div>
       <label>Page</label>
@@ -152,6 +155,24 @@ fetch("https://ifconfig.co/json").then(r => r.json()).then(d => {
   document.getElementById("ipInfo").textContent = "unavailable";
 });
 
+// Decodes a JWT's payload segment (base64url) without verifying the signature —
+// just to read claims like appId that Feed.fm doesn't expose anywhere else.
+function decodeJwt(token) {
+  try {
+    const payload = token.split(".")[1];
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0"))
+        .join("")
+    );
+    return JSON.parse(json);
+  } catch (e) {
+    return null;
+  }
+}
+
 function setStatus(el, ok, text) {
   el.className = "status " + (ok ? "ok" : "err");
   el.textContent = text;
@@ -181,6 +202,13 @@ async function authenticate() {
     if (res.ok && bearer) {
       setStatus(statusEl, true, `${res.status} OK — token received`);
       document.getElementById("bearerToken").value = bearer;
+      const claims = decodeJwt(bearer);
+      if (claims) {
+        outEl.textContent += "\n\n// decoded JWT payload:\n" + JSON.stringify(claims, null, 2);
+      }
+      if (claims?.appId != null) {
+        document.getElementById("clientId").value = claims.appId;
+      }
     } else {
       setStatus(statusEl, false, `${res.status} — no token in response`);
     }
@@ -192,6 +220,7 @@ async function authenticate() {
 async function fetchCollections() {
   const base = document.getElementById("baseUrl").value.trim();
   const bearer = document.getElementById("bearerToken").value.trim();
+  const clientId = document.getElementById("clientId").value.trim();
   const pageNum = document.getElementById("pageNum").value;
   const pageSize = document.getElementById("pageSize").value;
   const statusEl = document.getElementById("collStatus");
@@ -209,7 +238,11 @@ async function fetchCollections() {
         "Authorization": `Bearer ${bearer}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ page: Number(pageNum), per_page: Number(pageSize) }),
+      body: JSON.stringify({
+        clientId: clientId ? Number(clientId) : undefined,
+        page: Number(pageNum),
+        per_page: Number(pageSize),
+      }),
     });
     const data = await res.json();
     outEl.textContent = JSON.stringify(data, null, 2);
