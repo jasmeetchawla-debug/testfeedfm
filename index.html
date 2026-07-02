@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Feed.fm API Tester</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0b0d10;
+    color: #e6e6e6;
+    padding: 16px;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: #888; font-size: 13px; margin-bottom: 20px; }
+  .card {
+    background: #16191d;
+    border: 1px solid #2a2e33;
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 12px; color: #6cb4ff; }
+  label { display: block; font-size: 12px; color: #aaa; margin: 10px 0 4px; }
+  input {
+    width: 100%;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #3a3f45;
+    background: #0f1114;
+    color: #e6e6e6;
+    font-size: 14px;
+  }
+  .row { display: flex; gap: 8px; }
+  .row > div { flex: 1; }
+  button {
+    margin-top: 14px;
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    background: #2f7dd1;
+    color: white;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  button:active { background: #2563a8; }
+  button:disabled { background: #444; }
+  .status {
+    margin-top: 10px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .status.ok { color: #4fd18b; }
+  .status.err { color: #ff6b6b; }
+  pre {
+    margin-top: 10px;
+    background: #0a0c0e;
+    border: 1px solid #2a2e33;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 12px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  .shape {
+    margin-top: 10px;
+    background: #0a0c0e;
+    border: 1px solid #2a2e33;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 12px;
+  }
+  .shape div { padding: 1px 0; color: #d0d0d0; }
+  .shape .path { color: #6cb4ff; }
+  .shape .type { color: #f0b429; }
+  .toggle {
+    font-size: 11px;
+    color: #6cb4ff;
+    text-align: right;
+    margin-top: -6px;
+    display: block;
+  }
+  .ip-check { font-size: 12px; color: #888; margin-bottom: 16px; }
+  .ip-check span { color: #e6e6e6; }
+</style>
+</head>
+<body>
+
+<h1>Feed.fm API Tester</h1>
+<div class="sub">Runs straight from this device's network — connect your VPN before testing.</div>
+
+<div class="ip-check">Your outbound IP/country: <span id="ipInfo">checking…</span></div>
+
+<div class="card">
+  <h2>1. Authenticate</h2>
+  <label>Client Token</label>
+  <input type="password" id="clientToken" autocomplete="off" placeholder="FEEDFM_TOKEN">
+  <span class="toggle" onclick="toggleMask('clientToken', this)">show</span>
+
+  <label>Client Secret</label>
+  <input type="password" id="clientSecret" autocomplete="off" placeholder="FEEDFM_SECRET">
+  <span class="toggle" onclick="toggleMask('clientSecret', this)">show</span>
+
+  <label>Base URL</label>
+  <input type="text" id="baseUrl" value="https://api.clips.feed.fm">
+
+  <button onclick="authenticate()">Authenticate</button>
+  <div id="authStatus" class="status"></div>
+  <pre id="authOutput" style="display:none"></pre>
+</div>
+
+<div class="card">
+  <h2>2. Fetch Collections</h2>
+  <label>Bearer Token</label>
+  <input type="password" id="bearerToken" autocomplete="off" placeholder="auto-filled after step 1, or paste your own">
+  <span class="toggle" onclick="toggleMask('bearerToken', this)">show</span>
+
+  <div class="row">
+    <div>
+      <label>Page</label>
+      <input type="number" id="pageNum" value="1">
+    </div>
+    <div>
+      <label>Per Page</label>
+      <input type="number" id="pageSize" value="20">
+    </div>
+  </div>
+
+  <button onclick="fetchCollections()">Fetch Collections</button>
+  <div id="collStatus" class="status"></div>
+  <div id="collShape" class="shape" style="display:none"></div>
+  <pre id="collOutput" style="display:none"></pre>
+</div>
+
+<script>
+function toggleMask(id, el) {
+  const input = document.getElementById(id);
+  const showing = input.type === "text";
+  input.type = showing ? "password" : "text";
+  el.textContent = showing ? "show" : "hide";
+}
+
+fetch("https://ifconfig.co/json").then(r => r.json()).then(d => {
+  document.getElementById("ipInfo").textContent = `${d.ip} (${d.country})`;
+}).catch(() => {
+  document.getElementById("ipInfo").textContent = "unavailable";
+});
+
+function setStatus(el, ok, text) {
+  el.className = "status " + (ok ? "ok" : "err");
+  el.textContent = text;
+}
+
+async function authenticate() {
+  const base = document.getElementById("baseUrl").value.trim();
+  const token = document.getElementById("clientToken").value.trim();
+  const secret = document.getElementById("clientSecret").value.trim();
+  const statusEl = document.getElementById("authStatus");
+  const outEl = document.getElementById("authOutput");
+
+  setStatus(statusEl, true, "Requesting…");
+  outEl.style.display = "none";
+
+  try {
+    const res = await fetch(`${base}/authenticate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, secret }),
+    });
+    const data = await res.json();
+    outEl.textContent = JSON.stringify(data, null, 2);
+    outEl.style.display = "block";
+
+    const bearer = data?.data?.token || data?.token;
+    if (res.ok && bearer) {
+      setStatus(statusEl, true, `${res.status} OK — token received`);
+      document.getElementById("bearerToken").value = bearer;
+    } else {
+      setStatus(statusEl, false, `${res.status} — no token in response`);
+    }
+  } catch (e) {
+    setStatus(statusEl, false, "Request failed: " + e.message + " (likely CORS or network block — check browser console)");
+  }
+}
+
+async function fetchCollections() {
+  const base = document.getElementById("baseUrl").value.trim();
+  const bearer = document.getElementById("bearerToken").value.trim();
+  const pageNum = document.getElementById("pageNum").value;
+  const pageSize = document.getElementById("pageSize").value;
+  const statusEl = document.getElementById("collStatus");
+  const outEl = document.getElementById("collOutput");
+  const shapeEl = document.getElementById("collShape");
+
+  setStatus(statusEl, true, "Requesting…");
+  outEl.style.display = "none";
+  shapeEl.style.display = "none";
+
+  try {
+    const res = await fetch(`${base}/collections`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${bearer}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ page: Number(pageNum), per_page: Number(pageSize) }),
+    });
+    const data = await res.json();
+    outEl.textContent = JSON.stringify(data, null, 2);
+    outEl.style.display = "block";
+    setStatus(statusEl, res.ok, `${res.status} ${res.ok ? "OK" : "— see response below"}`);
+
+    shapeEl.innerHTML = describeShape(data);
+    shapeEl.style.display = "block";
+  } catch (e) {
+    setStatus(statusEl, false, "Request failed: " + e.message + " (likely CORS or network block — check browser console)");
+  }
+}
+
+// Walks the response and prints "path: type" for every leaf + first array element,
+// so real Feed.fm field names are visible at a glance without reading nested JSON by hand.
+function describeShape(obj, path = "", depth = 0, lines = []) {
+  if (depth > 5) return lines.join("");
+  if (Array.isArray(obj)) {
+    lines.push(`<div><span class="path">${path}</span>: <span class="type">array[${obj.length}]</span></div>`);
+    if (obj.length > 0) describeShape(obj[0], `${path}[0]`, depth + 1, lines);
+  } else if (obj !== null && typeof obj === "object") {
+    for (const key of Object.keys(obj)) {
+      const childPath = path ? `${path}.${key}` : key;
+      const val = obj[key];
+      if (val !== null && typeof val === "object") {
+        describeShape(val, childPath, depth + 1, lines);
+      } else {
+        lines.push(`<div><span class="path">${childPath}</span>: <span class="type">${typeof val}</span> = ${JSON.stringify(val)}</div>`);
+      }
+    }
+  }
+  return lines.join("");
+}
+</script>
+
+</body>
+</html>
